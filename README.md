@@ -5,10 +5,10 @@ A machine learning system that supports loan approval decisions using historical
 Loan officers must decide whether to approve a loan application before granting it, often under limited review time, which can lead to rushed or inconsistent decisions. FairLoan is a machine learning system that predicts loan approval outcomes from historical application data, giving loan officers a consistent, data-driven reference to support (not replace) their judgment. The project also conducts a fairness audit to assess whether predictions are biased with respect to features such as gender or race.
 
 ## Team Members
-Serge Ishimwe
-Divine Uwase Ingabire
-Lyse Claudia Irera
-Monia Nijimbere
+- Serge Ishimwe
+- Lyse Claudia Irera
+- Divine Uwase Ingabire
+- Monia Nijimbere
 
 Note: All members contribute collaboratively to data preparation, modeling, and evaluation.
 
