@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Environment
+.env
+venv/
+
+# OS
+.DS_Store
+
+# Large data files (optional — uncomment if dataset is large)
+# data/raw/*.csv
