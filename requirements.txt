@@ -1,6 +1,5 @@
-pandas
+streamlit
+scikit-learn==1.6.1
+joblib
+groq
 numpy
-scikit-learn
-matplotlib
-seaborn
-jupyter
