@@ -13,7 +13,23 @@ client = Groq(api_key=api_key)
 # Explanation function
 def generate_explanation(decision, income, credit_score, loan_amount, prior_default):
     prompt = f"""
-You are helping a loan officer understand a model-generated loan recommendation, so they can review it alongside their own judgment.
+You are a lending analyst writing a brief internal note for a loan officer, summarizing why a model reached a loan recommendation.
+
+Recommendation: {decision}
+Applicant's income: GHS {income}
+Applicant's credit score: {credit_score}
+Loan amount requested: GHS {loan_amount}
+Prior loan default on file: {"Yes" if prior_default else "No"}
+
+Write 3-4 sentences in a natural, conversational tone, as if briefing a colleague directly. Avoid starting with generic phrases like "This model suggests," "Based on the data," or "The recommendation is." Just get straight to the point.
+Base your explanation only on the information given above. Do not invent or assume any information not provided.
+This is a recommendation to support the officer's decision, not a final or automatic decision.
+"""
+    response = client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[{"role": "user", "content": prompt}]
+    )
+    return response.choices[0].message.content
 
 Recommendation: {decision}
 Applicant's income: GHS {income}
