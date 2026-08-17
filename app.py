@@ -30,7 +30,7 @@ img_base64 = get_base64_image("background.jpg")
 
 # Adding a dark semi-transparent overlay on top of the background image to dim its intensity
 if img_base64:
-    bg_css = f"linear-gradient(rgba(10, 15, 30, 0.85), rgba(10, 15, 30, 0.85)), url('data:image/jpeg;base64,{img_base64}')"
+    bg_css = f"linear-gradient(rgba(10, 15, 30, 0.70), rgba(10, 15, 30, 0.70)), url('data:image/jpeg;base64,{img_base64}')"
 else:
     bg_css = "linear-gradient(135deg, #0f172a 0%, #1e293b 100%)"
 
@@ -66,6 +66,10 @@ st.markdown(f"""
         border-radius: 8px;
         backdrop-filter: blur(10px);
         margin-bottom: 15px;
+    }}
+
+    .stApp, .stApp p, .stApp label, .stMarkdown {{
+        color: #f1f5f9 !important;
     }}
 </style>
 """, unsafe_allow_html=True)
@@ -167,7 +171,7 @@ def create_pdf_report(session_ref, history_logs):
     buffer.seek(0)
     return buffer
 
-# Explanation function
+# Explanation function using Groq's active model
 def generate_explanation(decision, income, credit_score, loan_amount, prior_default):
     prompt = f"""
 You are a lending analyst writing a brief internal note for a loan officer, summarizing why a model reached a loan recommendation.
@@ -183,10 +187,34 @@ Base your explanation only on the information given above. Do not invent or assu
 This is a recommendation to support the officer's decision, not a final or automatic decision.
 """
     response = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
+        model="openai/gpt-oss-20b",
         messages=[{"role": "user", "content": prompt}]
     )
     return response.choices[0].message.content
+
+# Function to flag cases where the model's prediction may not be reliable —
+# either because the model itself is uncertain, or because the applicant's
+# inputs fall far outside the range of data the model was trained on.
+def check_reliability(probability, age, income, loan_amount, emp_exp, cred_hist_length):
+    reasons = []
+
+    # Low-confidence check: prediction is close to the 50/50 boundary
+    if 0.40 <= probability <= 0.60:
+        reasons.append("The model's confidence in this prediction is low (close to a 50/50 split).")
+
+    # Outlier / logical-consistency checks based on realistic bounds
+    if income > 1_000_000:
+        reasons.append("Applicant income is far higher than typical values in the training data.")
+    if loan_amount > 100_000:
+        reasons.append("Requested loan amount is far higher than typical values in the training data.")
+    if emp_exp > (age - 18):
+        reasons.append("Employment experience is inconsistent with applicant age.")
+    if cred_hist_length > (age - 18):
+        reasons.append("Credit history length is inconsistent with applicant age.")
+    if age > 100:
+        reasons.append("Applicant age is unusually high relative to the training data.")
+
+    return reasons
 
 # App Header
 st.title("🏦 FairLoan — Loan Officer Decision Support")
@@ -195,7 +223,7 @@ st.divider()
 
 # Sidebar Layout with Categorized Sections
 with st.sidebar:
-    st.markdown(f" **Session Ref:** `{st.session_state['ref_id']}`")
+    st.markdown(f"**Session Ref:** `{st.session_state['ref_id']}`")
     st.divider()
     
     st.header("📋 Applicant Profile")
@@ -295,15 +323,42 @@ if evaluate_btn:
     probability = model.predict_proba(features_scaled)[0][1]
 
     st.subheader("Evaluation Results & Risk Tier")
-    
+
+    with st.expander("ℹ️ What do these risk tiers mean?"):
+        st.markdown("""
+        - **🟢 Tier 1 — Low Risk:** Model recommends approval based on applicant profile.
+        - **🔴 Tier 2 — Elevated Risk:** Model recommends against approval. This includes applicants with a prior default whose profile would have been rejected regardless — the default doesn't change the outcome.
+        - **🟡 Tier 3 — Flagged for Manual Review:** Applicant has a prior loan default on file, but their profile would otherwise have been approved. The model does not generate an automated recommendation for these cases — a human loan officer must review them directly.
+        - **🔵 Tier 4 — Review Recommended:** The model's confidence is low, or one or more inputs fall far outside the range of the training data. A loan officer should review manually rather than relying on the automated recommendation alone.
+        """)
+
+    # Check whether this prediction should be trusted at face value
+    reliability_flags = check_reliability(
+        probability, person_age, person_income, loan_amnt, person_emp_exp, cb_person_cred_hist_length
+    )
+
     col1, col2 = st.columns([1, 2])
 
     with col1:
         with st.container():
-            if prior_default == "Yes":
+            if prior_default == "Yes" and prediction == 0:
+                # Would have been rejected anyway — the default doesn't change the outcome
+                decision = "Not Approved"
+                st.error(f"🔴 **Tier 2 Risk: Elevated Risk**\n\nModel Recommendation: **Do Not Approve**")
+                st.write("Applicant also has a prior loan default on file, but the profile would have been rejected regardless.")
+                st.metric(label="Rejection Confidence", value=f"{(1-probability):.0%}")
+                st.progress(float(1 - probability), text="Risk Index")
+            elif prior_default == "Yes" and prediction == 1:
+                # Would otherwise have been approved — flag for manual review instead of auto-approving
                 decision = "Flagged for Manual Review"
-                st.error(f"🔴 **Tier 3 Risk: Flagged**")
-                st.warning("Requires manual review due to a prior loan default on file. The model has not generated an automated approval.")
+                st.warning(f"🟡 **Tier 3 Risk: Flagged for Manual Review**")
+                st.write("Applicant's profile would otherwise have been approved, but has a prior loan default on file. The model has not generated an automated approval — a loan officer must review this case directly.")
+            elif reliability_flags:
+                decision = "Review Recommended (Low Confidence / Outlier Inputs)"
+                st.info(f"🔵 **Tier 4 Risk: Review Recommended**\n\nThe model's automated recommendation may not be reliable for this applicant.")
+                for reason in reliability_flags:
+                    st.write(f"- {reason}")
+                st.caption(f"For reference, the model's raw output leaned toward: {'Approve' if prediction == 1 else 'Do Not Approve'} ({probability:.0%} confidence)")
             else:
                 if prediction == 1:
                     decision = "Approved"
@@ -340,6 +395,5 @@ if evaluate_btn:
         }
         if not st.session_state['history'] or st.session_state['history'][-1] != current_eval:
             st.session_state['history'].append(current_eval)
-            st.rerun()
 else:
     st.info("👈 Adjust the applicant details in the sidebar and click **Evaluate Loan Application** to view the model's decision support breakdown.")
