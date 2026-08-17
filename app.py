@@ -3,13 +3,20 @@ import joblib
 import numpy as np
 import base64
 import random
+from datetime import datetime
 from groq import Groq
+from io import BytesIO
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
 
 # Page configuration for a professional look
 st.set_page_config(
     page_title="FairLoan - Decision Support Tool",
     page_icon="🏦",
-    layout="wide")
+    layout="wide"
+)
 
 # Helper function to convert local image to base64 for reliable CSS injection
 def get_base64_image(image_path):
@@ -18,6 +25,7 @@ def get_base64_image(image_path):
             return base64.b64encode(img_file.read()).decode()
     except Exception:
         return ""
+
 img_base64 = get_base64_image("background.jpg")
 
 # Adding a dark semi-transparent overlay on top of the background image to dim its intensity
@@ -78,6 +86,87 @@ client = Groq(api_key=api_key)
 if 'ref_id' not in st.session_state:
     st.session_state['ref_id'] = f"FL-{random.randint(100000, 999999)}"
 
+# Initialize session history log if not present
+if 'history' not in st.session_state:
+    st.session_state['history'] = []
+
+# Function to generate a formatted PDF report using ReportLab
+def create_pdf_report(session_ref, history_logs):
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
+    story = []
+    
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'TitleStyle',
+        parent=styles['Heading1'],
+        fontName='Helvetica-Bold',
+        fontSize=18,
+        textColor=colors.HexColor("#1e293b"),
+        spaceAfter=6
+    )
+    subtitle_style = ParagraphStyle(
+        'SubtitleStyle',
+        parent=styles['Normal'],
+        fontName='Helvetica',
+        fontSize=10,
+        textColor=colors.HexColor("#64748b"),
+        spaceAfter=15
+    )
+    section_style = ParagraphStyle(
+        'SectionStyle',
+        parent=styles['Heading2'],
+        fontName='Helvetica-Bold',
+        fontSize=12,
+        textColor=colors.HexColor("#0f172a"),
+        spaceBefore=10,
+        spaceAfter=6
+    )
+    body_style = ParagraphStyle(
+        'BodyStyle',
+        parent=styles['Normal'],
+        fontName='Helvetica',
+        fontSize=10,
+        textColor=colors.HexColor("#334155"),
+        spaceAfter=6
+    )
+
+    # Document Header
+    story.append(Paragraph("FairLoan — Credit Risk Evaluation Report", title_style))
+    story.append(Paragraph(f"Session Reference: <b>{session_ref}</b> | Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", subtitle_style))
+    
+    if not history_logs:
+        story.append(Paragraph("No loan evaluations recorded in this session.", body_style))
+    else:
+        for idx, item in enumerate(history_logs, 1):
+            story.append(Paragraph(f"Evaluation #{idx} — [{item['timestamp']}]", section_style))
+            
+            # Summary Table of Parameters
+            data = [
+                [Paragraph(f"<b>Income:</b> GHS {item['income']:,.2f}", body_style),
+                 Paragraph(f"<b>Loan Amount:</b> GHS {item['loan_amount']:,.2f}", body_style)],
+                [Paragraph(f"<b>Credit Score:</b> {item['credit_score']}", body_style),
+                 Paragraph(f"<b>Decision:</b> {item['decision']}", body_style)]
+            ]
+            t = Table(data, colWidths=[250, 250])
+            t.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#f8fafc")),
+                ('BOX', (0,0), (-1,-1), 0.5, colors.HexColor("#cbd5e1")),
+                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                ('TOPPADDING', (0,0), (-1,-1), 6),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+            ]))
+            story.append(t)
+            story.append(Spacer(1, 6))
+            
+            # Analyst Note Section
+            story.append(Paragraph(f"<b>Analyst Briefing Note:</b><br/>{item['explanation']}", body_style))
+            story.append(Spacer(1, 12))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
 # Explanation function
 def generate_explanation(decision, income, credit_score, loan_amount, prior_default):
     prompt = f"""
@@ -104,15 +193,13 @@ st.title("🏦 FairLoan — Loan Officer Decision Support")
 st.markdown("Use this workspace to evaluate applicant profiles, review automated model recommendations, and read quick AI-generated summary notes.")
 st.divider()
 
-# Sidebar Layout with Categorized Sections (Mimicking a Core Banking Portal)
+# Sidebar Layout with Categorized Sections
 with st.sidebar:
-    st.markdown(" **Logged in:** Loan Officer (Credit Risk)")
     st.markdown(f" **Session Ref:** `{st.session_state['ref_id']}`")
     st.divider()
     
     st.header("📋 Applicant Profile")
 
-    # Category 1: Demographics
     with st.expander("👤 Personal & Demographics", expanded=True):
         person_age = st.number_input("Age:", min_value=18, max_value=100, value=25)
         person_education_input = st.selectbox("Education Level:", ["Not educated", "Primary", "High School", "Associate", "Bachelor", "Master", "Doctorate"])
@@ -120,12 +207,10 @@ with st.sidebar:
         person_education = education_fallback.get(person_education_input, person_education_input)
         home_ownership = st.selectbox("Home Ownership:", ["MORTGAGE", "OTHER", "OWN", "RENT"])
 
-    # Category 2: Financials
     with st.expander("💰 Financials & Employment", expanded=False):
         person_income = st.number_input("Annual Income (GHS):", min_value=0, value=50000, step=1000)
         person_emp_exp = st.number_input("Years of Employment Experience:", min_value=0, max_value=60, value=5)
 
-    # Category 3: Loan Request Details
     with st.expander("📝 Loan Parameters", expanded=False):
         loan_amnt = st.number_input("Loan Amount Requested (GHS):", min_value=0, value=10000, step=500)
         loan_int_rate = st.number_input("Loan Interest Rate (%):", min_value=0.0, max_value=100.0, value=10.0, step=0.1)
@@ -141,7 +226,6 @@ with st.sidebar:
         selected_intent_label = st.selectbox("Loan Purpose:", list(intent_mapping.keys()))
         loan_intent = intent_mapping[selected_intent_label]
 
-    # Category 4: Credit Risk History
     with st.expander("🛡️ Credit & Risk History", expanded=False):
         cb_person_cred_hist_length = st.number_input("Credit History Length (years):", min_value=0, value=5)
         credit_score = st.number_input("Credit Score:", min_value=300, max_value=850, value=650)
@@ -150,9 +234,23 @@ with st.sidebar:
     st.divider()
     evaluate_btn = st.button("🚀 Evaluate Loan Application", type="primary", use_container_width=True)
 
+    # Session Log & PDF Report Download Section in Sidebar
+    st.divider()
+    st.write(f"Evaluations logged: **{len(st.session_state['history'])}**")
+    
+    # Generate PDF binary for download
+    pdf_buffer = create_pdf_report(st.session_state['ref_id'], st.session_state['history'])
+        
+    st.download_button(
+        label="Download Session Report (PDF)",
+        data=pdf_buffer,
+        file_name=f"FairLoan_Audit_Report_{st.session_state['ref_id']}.pdf",
+        mime="application/pdf",
+        use_container_width=True
+    )
+
 # Main Content Area for Results
 if evaluate_btn:
-    # Encoding logic
     education_order = {'High School': 0, 'Associate': 1, 'Bachelor': 2, 'Master': 3, 'Doctorate': 4}
     person_education_encoded = education_order[person_education]
 
@@ -230,5 +328,18 @@ if evaluate_btn:
 
         st.markdown("#### 📝 Internal Analyst Briefing Note")
         st.info(explanation)
+        
+        # Automatically append this evaluation to the session audit log history
+        current_eval = {
+            "timestamp": datetime.now().strftime("%H:%M:%S"),
+            "income": person_income,
+            "loan_amount": loan_amnt,
+            "credit_score": credit_score,
+            "decision": decision,
+            "explanation": explanation
+        }
+        if not st.session_state['history'] or st.session_state['history'][-1] != current_eval:
+            st.session_state['history'].append(current_eval)
+            st.rerun()
 else:
     st.info("👈 Adjust the applicant details in the sidebar and click **Evaluate Loan Application** to view the model's decision support breakdown.")
