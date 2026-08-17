@@ -31,21 +31,6 @@ This is a recommendation to support the officer's decision, not a final or autom
     )
     return response.choices[0].message.content
 
-Recommendation: {decision}
-Applicant's income: GHS {income}
-Applicant's credit score: {credit_score}
-Loan amount requested: GHS {loan_amount}
-Prior loan default on file: {"Yes" if prior_default else "No"}
-
-Write a short, clear explanation (3-4 sentences) for the loan officer, summarizing why the model reached this recommendation.
-Base your explanation only on the information given above. Do not invent or assume any information not provided.
-This is a recommendation to support the officer's decision, not a final or automatic decision.
-"""
-    response = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
-        messages=[{"role": "user", "content": prompt}])
-    return response.choices[0].message.content
-
 # Page setup
 st.title("FairLoan - Loan Officer Decision Support Tool")
 st.write("Enter applicant details below to receive a model-based recommendation and supporting explanation.")
@@ -134,8 +119,7 @@ if st.button("Get Loan Decision"):
             income=person_income,
             credit_score=credit_score,
             loan_amount=loan_amnt,
-            prior_default=(prior_default == "Yes")
-        )
+            prior_default=(prior_default == "Yes"))
 
     st.subheader("Explanation")
     st.write(explanation)
