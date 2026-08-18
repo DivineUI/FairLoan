@@ -202,8 +202,8 @@ def check_reliability(probability, age, income, loan_amount, emp_exp, cred_hist_
     if 0.40 <= probability <= 0.60:
         reasons.append("The model's confidence in this prediction is low (close to a 50/50 split).")
 
-    # Outlier / logical-consistency checks based on realistic bounds
-    if income > 1_000_000:
+    # Outlier / logical-consistency checks based on realistic bounds (updated threshold to 100,000)
+    if income >= 100_000:
         reasons.append("Applicant income is far higher than typical values in the training data.")
     if loan_amount > 100_000:
         reasons.append("Requested loan amount is far higher than typical values in the training data.")
